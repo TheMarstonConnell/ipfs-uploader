@@ -23,6 +23,8 @@ import (
 	"github.com/jackalLabs/canine-chain/v3/x/storage/utils"
 )
 
+var blackList = make(map[string]bool)
+
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -32,6 +34,11 @@ type IPFSResponse struct {
 }
 
 func uploadFile(ip string, r io.Reader, merkle []byte, start int64, address string, postType int64) (string, error) {
+
+	if blackList[address] {
+		return "", fmt.Errorf("blacklisted")
+	}
+
 	cli := http.DefaultClient
 	cli.Timeout = time.Second * 20
 	u, err := url.Parse(ip)
@@ -107,7 +114,7 @@ func uploadFile(ip string, r io.Reader, merkle []byte, start int64, address stri
 	return ipfsRes.Cid, nil
 }
 
-func PostFile(fileData []byte, queue *Queue, w *wallet.Wallet, isFolder bool) ([]string, []byte, error) {
+func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, isFolder bool) ([]string, []byte, error) {
 	buf := bytes.NewBuffer(fileData)
 	treeBuffer := bytes.NewBuffer(buf.Bytes())
 
@@ -154,7 +161,7 @@ func PostFile(fileData []byte, queue *Queue, w *wallet.Wallet, isFolder bool) ([
 	if err != nil {
 		return nil, root, err
 	}
-	log.Print("finished waiting for queue...")
+
 	if res == nil {
 		return nil, root, fmt.Errorf("response is empty")
 	}
@@ -175,7 +182,6 @@ func PostFile(fileData []byte, queue *Queue, w *wallet.Wallet, isFolder bool) ([
 		return nil, root, err
 	}
 
-	log.Print(txMsgData)
 	if len(txMsgData.Data) == 0 {
 		return nil, root, fmt.Errorf("no message data")
 	}
@@ -185,11 +191,6 @@ func PostFile(fileData []byte, queue *Queue, w *wallet.Wallet, isFolder bool) ([
 		return nil, root, err
 	}
 
-	ips := postRes.ProviderIps
-	log.Print(ips)
-
-	log.Print(res.Code)
-	log.Printf(res.RawLog)
 	log.Printf(res.TxHash)
 
 	c := make([]string, 0)
@@ -209,32 +210,54 @@ func PostFile(fileData []byte, queue *Queue, w *wallet.Wallet, isFolder bool) ([
 	if err != nil {
 		return c, root, err
 	}
+	providers := filterArray(provRes.Providers, blackList)
 
-	providers := provRes.Providers
+	log.Printf("There are %d providers available for %s", len(providers), fileName)
 
 	for i := range providers {
 		j := rand.Intn(i + 1)
 		providers[i], providers[j] = providers[j], providers[i]
 	}
 
+	log.Printf("Attempting to upload %s", fileName)
+
 	var k int
 	for _, provider := range providers {
 		if k >= 3 {
 			continue
 		}
+		if blackList[provider.Ip] {
+			continue
+		}
 		uploadBuffer := bytes.NewBuffer(buf.Bytes())
-		cid, err := uploadFile(provider.Ip, uploadBuffer, root, postRes.StartBlock, address, 1)
+		//log.Printf("Attempting upload of %s to: %s", fileName, provider.Ip)
+
+		cid, err := uploadFile(provider.Ip, uploadBuffer, root, postRes.StartBlock, address, isFolderVal)
+		if len(cid) == 0 && err == nil {
+			err = fmt.Errorf("CID does not exist")
+		}
 		if err != nil {
 			if strings.Contains(err.Error(), "I cannot claim") {
 				break
 			}
 			log.Err(err)
+			blackList[provider.Ip] = true
 			continue
 		}
-		log.Printf("Upload success to %s with cid: %s\n", provider.Ip, cid)
+		log.Printf("Upload of %s successful to %s with cid: %s", fileName, provider.Ip, cid)
 		c = append(c, cid)
 
 		k++
 	}
 	return c, root, nil
+}
+
+func filterArray(arr []types.Providers, filter map[string]bool) []types.Providers {
+	var result []types.Providers
+	for _, item := range arr {
+		if !filter[item.Ip] {
+			result = append(result, item) // Add to result if not in filter
+		}
+	}
+	return result
 }
