@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	cosmoWallet "github.com/desmos-labs/cosmos-go-wallet/wallet"
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
@@ -62,17 +61,21 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, 
 		wg.Add(1)
 
 		go func() {
-			log.Printf("Posting: %s", fileName)
-			c, _, err := uploader.PostFile(fileName, data, q, w, false)
-			if err != nil {
-				panic(err)
-			}
+			l := 0
+			for l == 0 {
 
-			if len(c) == 0 {
-				panic(fmt.Sprintf("something failed while uploading, there are no CIDs for %s", fileName))
-			}
+				log.Printf("Posting: %s", fileName)
+				c, _, err := uploader.PostFile(fileName, data, q, w, false)
+				if err != nil {
+					panic(err)
+				}
 
-			files[entry.Name()] = c[0]
+				l = len(c)
+
+				if l > 0 {
+					files[fileName] = c[0]
+				}
+			}
 
 			wg.Done()
 		}()

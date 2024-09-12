@@ -16,14 +16,13 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/cosmos-sdk/types/query"
 	"github.com/desmos-labs/cosmos-go-wallet/wallet"
 	canine "github.com/jackalLabs/canine-chain/v3/app"
 	"github.com/jackalLabs/canine-chain/v3/x/storage/types"
 	"github.com/jackalLabs/canine-chain/v3/x/storage/utils"
 )
 
-var blackList = make(map[string]bool)
+//var blackList sync.Map
 
 type ErrorResponse struct {
 	Error string `json:"error"`
@@ -35,9 +34,10 @@ type IPFSResponse struct {
 
 func uploadFile(ip string, r io.Reader, merkle []byte, start int64, address string, postType int64) (string, error) {
 
-	if blackList[address] {
-		return "", fmt.Errorf("blacklisted")
-	}
+	//_, ok := blackList.Load(ip)
+	//if ok {
+	//	return "", fmt.Errorf("blacklisted")
+	//}
 
 	cli := http.DefaultClient
 	cli.Timeout = time.Second * 20
@@ -195,42 +195,45 @@ func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, 
 
 	c := make([]string, 0)
 
-	pageReq := &query.PageRequest{
-		Key:        nil,
-		Offset:     0,
-		Limit:      200,
-		CountTotal: false,
-		Reverse:    false,
-	}
-	provReq := types.QueryAllProviders{
-		Pagination: pageReq,
-	}
+	provReq := types.QueryActiveProviders{}
 
-	provRes, err := cl.AllProviders(context.Background(), &provReq)
+	provRes, err := cl.ActiveProviders(context.Background(), &provReq)
 	if err != nil {
 		return c, root, err
 	}
-	providers := filterArray(provRes.Providers, blackList)
+	ps := provRes.Providers
 
-	log.Printf("There are %d providers available for %s", len(providers), fileName)
+	parsedProvs := make([]types.Providers, len(ps))
 
-	for i := range providers {
+	for i, provider := range ps {
+		qp := types.QueryProvider{
+			Address: provider.Address,
+		}
+
+		providerResponse, err := cl.Provider(context.Background(), &qp)
+		if err != nil {
+			return c, root, err
+		}
+
+		parsedProvs[i] = providerResponse.Provider
+	}
+
+	log.Printf("There are %d providers available for %s", len(parsedProvs), fileName)
+
+	for i := range parsedProvs {
 		j := rand.Intn(i + 1)
-		providers[i], providers[j] = providers[j], providers[i]
+		parsedProvs[i], parsedProvs[j] = parsedProvs[j], parsedProvs[i]
 	}
 
 	log.Printf("Attempting to upload %s", fileName)
 
 	var k int
-	for _, provider := range providers {
+	for _, provider := range parsedProvs {
 		if k >= 3 {
 			continue
 		}
-		if blackList[provider.Ip] {
-			continue
-		}
+
 		uploadBuffer := bytes.NewBuffer(buf.Bytes())
-		//log.Printf("Attempting upload of %s to: %s", fileName, provider.Ip)
 
 		cid, err := uploadFile(provider.Ip, uploadBuffer, root, postRes.StartBlock, address, isFolderVal)
 		if len(cid) == 0 && err == nil {
@@ -241,7 +244,6 @@ func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, 
 				break
 			}
 			log.Err(err)
-			blackList[provider.Ip] = true
 			continue
 		}
 		log.Printf("Upload of %s successful to %s with cid: %s", fileName, provider.Ip, cid)
