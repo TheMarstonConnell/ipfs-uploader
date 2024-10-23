@@ -18,6 +18,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func PostFile(filePath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, []byte, error) {
+	file, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", nil, err
+	}
+
+	log.Printf("Posting: %s", filePath)
+	c, r, err := uploader.PostFile(filePath, file, q, w, false)
+	if err != nil {
+		return "", nil, err
+	}
+
+	log.Print(c)
+
+	return c[0], r, err
+
+}
+
 func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, []byte, error) {
 	directory, err := os.ReadDir(dirPath)
 	if err != nil {

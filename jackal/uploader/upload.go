@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/rs/zerolog/log"
 	"io"
@@ -151,7 +152,7 @@ func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, 
 		3,
 		"{\"memo\":\"Uploaded with jackalIPFS\"}",
 	)
-	msg.Expires = abci.Response.LastBlockHeight + ((100 * 365 * 24 * 60 * 60) / 6)
+	msg.Expires = abci.Response.LastBlockHeight + ((45 * 365 * 24 * 60 * 60) / 6)
 
 	if err := msg.ValidateBasic(); err != nil {
 		return nil, root, err
@@ -250,6 +251,9 @@ func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, 
 		c = append(c, cid)
 
 		k++
+	}
+	if len(c) == 0 {
+		return c, root, errors.New("did not upload any files")
 	}
 	return c, root, nil
 }

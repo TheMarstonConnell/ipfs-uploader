@@ -56,12 +56,15 @@ func (q *Queue) popAndPost() {
 
 	msg := m.m
 
+	gas := 220000
+
 	data := walletTypes.NewTransactionData(
 		msg,
-	).WithGasAuto().WithFeeAuto()
-
+	).WithGasLimit(uint64(gas)).WithFeeAuto()
+	//.WithFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("ujkl", int64(float64(gas)*0.02)+1)))
 	res, err := q.w.BroadcastTxCommit(data)
 	if err != nil {
+		log.Print(err)
 		log.Error().Err(err)
 	}
 	if res == nil {
