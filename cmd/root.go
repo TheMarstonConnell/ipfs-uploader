@@ -30,7 +30,7 @@ func LaunchCMD(q *uploader.Queue, w *wallet.Wallet) *cobra.Command {
 
 			dir := args[0]
 
-			cid, _, err := core.PostDir(dir, q, w)
+			cid, _, err := core.PostDir(dir, q, w, makeIPFS())
 			if err != nil {
 				return err
 			}
@@ -51,7 +51,7 @@ func BlastCMD(q *uploader.Queue, w *wallet.Wallet) *cobra.Command {
 
 			dir := args[0]
 
-			cid, _, err := core.PostFile(dir, q, w)
+			cid, _, err := core.PostFile(dir, q, w, makeIPFS())
 			if err != nil {
 				return err
 			}

@@ -2,6 +2,7 @@ package uploader
 
 import (
 	"github.com/rs/zerolog/log"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,10 +36,14 @@ func (q *Queue) Stop() {
 	q.stopped = true
 }
 
+func (q *Queue) TooBusy() bool {
+	return len(q.messages) > 100
+}
+
 func (q *Queue) Listen() {
 	go func() {
 		for !q.stopped {
-			time.Sleep(time.Millisecond * 1000)
+			time.Sleep(time.Second * 8)
 			q.popAndPost()
 		}
 	}()
@@ -51,34 +56,52 @@ func (q *Queue) popAndPost() {
 	}
 	// log.Printf("Found one!")
 
-	m := q.messages[0]
-	q.messages = q.messages[1:]
+	size := 2
+	if len(q.messages) < size {
+		size = len(q.messages)
+	}
 
-	msg := m.m
+	newMessages := q.messages[0:size]
+	q.messages = q.messages[size:]
 
-	gas := 220000
+	var msgs []sdk.Msg
+
+	for _, message := range newMessages {
+		msgs = append(msgs, message.m)
+	}
+
+	gas := 1000000
 
 	data := walletTypes.NewTransactionData(
-		msg,
+		msgs...,
 	).WithGasLimit(uint64(gas)).WithFeeAuto()
 	//.WithFeeAmount(sdk.NewCoins(sdk.NewInt64Coin("ujkl", int64(float64(gas)*0.02)+1)))
-	res, err := q.w.BroadcastTxCommit(data)
-	if err != nil {
-		log.Print(err)
-		log.Error().Err(err)
-	}
-	if res == nil {
-		log.Printf("response is for sure empty")
-	}
-	m.err = err
-	m.r = res
 
-	m.wg.Done()
+	e := "timed out waiting for tx to be included in a block"
+	for strings.Contains(e, "timed out waiting for tx to be included in a block") {
+		res, err := q.w.BroadcastTxCommit(data)
+		e = ""
+		if err != nil {
+			e = err.Error()
+			log.Print(err)
+			log.Error().Err(err)
+			continue
+		}
+		if res == nil {
+			log.Printf("response is for sure empty")
+			continue
+		}
+
+		for _, m := range newMessages {
+			m.err = err
+			m.r = res
+
+			m.wg.Done()
+		}
+	}
 }
 
 func (q *Queue) Post(msg sdk.Msg) (*sdk.TxResponse, error) {
-	log.Printf("posting message...")
-
 	var wg sync.WaitGroup
 	m := MsgHolder{
 		m:  msg,
@@ -87,8 +110,6 @@ func (q *Queue) Post(msg sdk.Msg) (*sdk.TxResponse, error) {
 	wg.Add(1)
 
 	q.messages = append(q.messages, &m)
-
-	log.Printf("waiting...")
 
 	wg.Wait()
 

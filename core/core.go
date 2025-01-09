@@ -1,14 +1,20 @@
 package core
 
 import (
+	"encoding/json"
+	"fmt"
 	cosmoWallet "github.com/desmos-labs/cosmos-go-wallet/wallet"
+	ipfslite "github.com/hsanjuan/ipfs-lite"
 	"github.com/ipfs/boxo/ipld/merkledag"
 	"github.com/ipfs/go-cid"
 	"ipfsUploader/jackal/uploader"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
+
+	"time"
 )
 
 import (
@@ -18,14 +24,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func PostFile(filePath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, []byte, error) {
+func PostFile(filePath string, q *uploader.Queue, w *cosmoWallet.Wallet, peer *ipfslite.Peer) (string, []byte, error) {
 	file, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", nil, err
 	}
 
 	log.Printf("Posting: %s", filePath)
-	c, r, err := uploader.PostFile(filePath, file, q, w, false)
+	c, r, err := uploader.PostFile(filePath, file, q, w, false, peer)
 	if err != nil {
 		return "", nil, err
 	}
@@ -33,10 +39,10 @@ func PostFile(filePath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string
 	log.Print(c)
 
 	return c[0], r, err
-
 }
 
-func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, []byte, error) {
+func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet, peer *ipfslite.Peer) (string, []byte, error) {
+
 	directory, err := os.ReadDir(dirPath)
 	if err != nil {
 		return "", nil, err
@@ -46,8 +52,16 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, 
 
 	var wg sync.WaitGroup
 
+	k := 0
+
 	for _, entry := range directory {
+		time.Sleep(time.Second * 2)
+		for k > 15 {
+			time.Sleep(time.Second * 10)
+		}
+
 		if strings.HasPrefix(entry.Name(), ".") {
+
 			continue
 		}
 
@@ -56,7 +70,7 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, 
 			go func() {
 				log.Printf("Entering Dir: %s", entry.Name())
 				newDir := path.Join(dirPath, entry.Name())
-				folderCID, _, err := PostDir(newDir, q, w)
+				folderCID, _, err := PostDir(newDir, q, w, peer)
 				if err != nil {
 					panic(err)
 				}
@@ -67,40 +81,64 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, 
 		}
 
 		fileName := entry.Name()
-
-		log.Printf("Entry: %s", fileName)
 		toRead := path.Join(dirPath, fileName)
-		data, err := os.ReadFile(toRead)
-		if err != nil {
-			return "", nil, err
-		}
-		log.Printf("Successfully opened: %s", toRead)
 
 		wg.Add(1)
 
+		k++
+
 		go func() {
+			defer wg.Done()
 			l := 0
 			for l == 0 {
 
-				log.Printf("Posting: %s", fileName)
-				c, _, err := uploader.PostFile(fileName, data, q, w, false)
+				data, err := os.ReadFile(toRead)
 				if err != nil {
-					panic(err)
+					return
 				}
 
-				l = len(c)
+				success := false
 
-				if l > 0 {
-					files[fileName] = c[0]
+				for !success {
+					log.Printf("Posting: %s", fileName)
+					c, _, err := uploader.PostFile(fileName, data, q, w, false, peer)
+					if err != nil {
+						log.Print(err)
+						continue
+					}
+
+					l = len(c)
+
+					if l > 0 {
+						files[fileName] = c[0]
+					}
+
+					success = true
 				}
+
+				break
+
 			}
 
-			wg.Done()
+			k--
+
 		}()
 
 	}
 
+	f := false
+
+	go func() {
+		for !f {
+			log.Printf("Still waiting...")
+			time.Sleep(time.Second * 10)
+		}
+	}()
+
 	wg.Wait()
+	f = true
+
+	log.Printf("Done waiting!")
 
 	childCIDs := make(map[string]cid.Cid)
 	for key, s := range files {
@@ -109,6 +147,18 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, 
 			return "", nil, err
 		}
 		childCIDs[key] = c
+	}
+
+	log.Printf("Folder CID Generation")
+
+	fileMap, err := json.MarshalIndent(files, "", "    ")
+	if err != nil {
+		return "", nil, err
+	}
+	parent := filepath.Base(dirPath)
+	err = os.WriteFile(fmt.Sprintf("%s.json", parent), fileMap, os.ModePerm)
+	if err != nil {
+		return "", nil, err
 	}
 
 	n, err := GenIPFSFolderData(childCIDs)
@@ -125,7 +175,7 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet) (string, 
 
 	log.Printf("%x\n\n%s", rawData, string(rawData))
 
-	c, merkle, err := uploader.PostFile(dirPath, rawData, q, w, true)
+	c, merkle, err := uploader.PostFile(dirPath, rawData, q, w, true, peer)
 	if err != nil {
 		return n.Cid().String(), nil, err
 	}
