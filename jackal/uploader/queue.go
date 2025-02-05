@@ -56,7 +56,7 @@ func (q *Queue) popAndPost() {
 	}
 	// log.Printf("Found one!")
 
-	size := 2
+	size := 10
 	if len(q.messages) < size {
 		size = len(q.messages)
 	}
@@ -70,7 +70,7 @@ func (q *Queue) popAndPost() {
 		msgs = append(msgs, message.m)
 	}
 
-	gas := 1000000
+	gas := 2000000
 
 	data := walletTypes.NewTransactionData(
 		msgs...,

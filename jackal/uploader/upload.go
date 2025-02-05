@@ -159,8 +159,11 @@ func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, 
 	}
 
 	if count > 0 {
-		log.Printf("Skipping %s", fileName)
-		return c, root, nil
+
+		if len(merkleRes.Files[0].Proofs) > 0 {
+			log.Printf("Skipping %s", fileName)
+			return c, root, nil
+		}
 	}
 
 	address := w.AccAddress()
@@ -230,11 +233,12 @@ func PostFile(fileName string, fileData []byte, queue *Queue, w *wallet.Wallet, 
 			Ip:      "https://mprov01.jackallabs.io",
 		},
 		{
-			//	Address: "jkl1tq0y06fmzzxclgcqsx2em3u2kt5rh24zw8qr0q",
-			//	Ip:      "https://jackal3.spantobi1910.com",
-			//}, {
 			Address: "jkl1taj9qq2qpr9ya6su6qplajfd39duhkqx4d6r04",
 			Ip:      "https://node2.jackalstorageprovider40.com",
+		},
+		{
+			Address: "jkl1dht8meprya6jr7w9g9zcp4p98ccxvckufvu4zc",
+			Ip:      "https://jklstorage1.squirrellogic.com",
 		},
 	}
 

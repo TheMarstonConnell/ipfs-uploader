@@ -48,16 +48,16 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet, peer *ipf
 		return "", nil, err
 	}
 
-	files := make(map[string]string)
+	var files sync.Map
 
 	var wg sync.WaitGroup
 
 	k := 0
 
 	for _, entry := range directory {
-		time.Sleep(time.Second * 2)
-		for k > 15 {
-			time.Sleep(time.Second * 10)
+		time.Sleep(time.Millisecond * 50)
+		for k > 40 {
+			time.Sleep(time.Second * 6)
 		}
 
 		if strings.HasPrefix(entry.Name(), ".") {
@@ -74,7 +74,7 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet, peer *ipf
 				if err != nil {
 					panic(err)
 				}
-				files[entry.Name()] = folderCID
+				files.Store(entry.Name(), folderCID)
 				wg.Done()
 			}()
 			continue
@@ -110,7 +110,7 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet, peer *ipf
 					l = len(c)
 
 					if l > 0 {
-						files[fileName] = c[0]
+						files.Store(fileName, c[0])
 					}
 
 					success = true
@@ -141,17 +141,21 @@ func PostDir(dirPath string, q *uploader.Queue, w *cosmoWallet.Wallet, peer *ipf
 	log.Printf("Done waiting!")
 
 	childCIDs := make(map[string]cid.Cid)
-	for key, s := range files {
+	fs := make(map[string]string)
+	files.Range(func(key, s any) bool {
+		fs[key.(string)] = s.(string)
 		c, err := cid.Parse(s)
 		if err != nil {
-			return "", nil, err
+			return true
 		}
-		childCIDs[key] = c
-	}
+
+		childCIDs[key.(string)] = c
+		return true
+	})
 
 	log.Printf("Folder CID Generation")
 
-	fileMap, err := json.MarshalIndent(files, "", "    ")
+	fileMap, err := json.MarshalIndent(fs, "", "    ")
 	if err != nil {
 		return "", nil, err
 	}
